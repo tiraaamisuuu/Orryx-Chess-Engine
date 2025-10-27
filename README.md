@@ -31,7 +31,7 @@ It’s designed for learning, experimentation, and testing AI strategies in ches
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/tiraaamisuuu/Orryx.git
+   git clone https://github.com/tiraaamisuuu/Orryx-Chess-Engine.git
    cd ChessAI
    ```
 2. **Build the project with CMake**
