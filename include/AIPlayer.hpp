@@ -4,43 +4,48 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <chrono>
 
-class Board; // forward
+class Board; // forward decl
 
 class AIPlayer {
 public:
-    AIPlayer(char color, int maxDepth = 2);  // color = 'W' or 'B'
+    // Construct AI for a colour ('W' or 'B') with a default search depth
+    AIPlayer(char color, int maxDepth_ = 4);
 
-    // Public API
-    std::string findBestMove(Board& board);
-    double evaluateBoard(const Board& board) const;
+    // Primary public entrypoint (safe to pass a Board copy or temporary).
+    // The function may modify internal stats/TT so it is non-const.
+    std::string findBestMove(Board board);
 
-    // Optional: adjust search depth
+    // Public evaluator so Board::display() / GUI can call it without accessing private members.
+    // This is const: it does not mutate the AI internal state.
+    double evaluateBoard(const Board &board) const;
+
+    // Set / change search depth (runtime adjustable)
     void setMaxDepth(int d) { maxDepth = d; }
+
+    std::vector<std::string> generateAllLegalMoves(Board &board, char color) const;
 
 private:
     char playerColor;
+    int maxDepth;
     std::string lastMoveFrom;
 
-    // Search params / stats
-    int maxDepth;
+    // Search stats
     double totalThinkingTime = 0.0;
     int movesCount = 0;
 
     // Transposition table entry
     struct TTEntry {
         double value;
-        int depth; // depth at which value was computed
+        int depth;
     };
     std::unordered_map<std::string, TTEntry> tt;
 
-    // Helpers
-    double pieceValue(char piece) const;
-    std::vector<std::string> generateAllLegalMoves(Board &board, char color) const;
+    // Core search helpers
     double alphaBeta(Board &board, int depth, double alpha, double beta, bool maximizing);
-
-    // string key builder for TT
+    double pieceValue(char piece) const;
     std::string boardKey(const Board &board) const;
 };
 
-#endif
+#endif // AIPLAYER_HPP

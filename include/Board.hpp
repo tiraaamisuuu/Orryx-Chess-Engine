@@ -17,6 +17,9 @@ public:
     // Accessor for current player (useful for main / checking game state)
     char getCurrentPlayer() const { return currentPlayer; }
 
+    // Small accessor for lastMove for UI
+    std::string getLastMove() const { return lastMove; }
+
     // Check utilities
     bool isInCheck(char color) const;       // true if 'W' or 'B' king is under attack
     bool isCheckmate(char color) const;     // true if that colour is checkmated
@@ -40,8 +43,6 @@ private:
     bool blackRookMoved[2] = { false, false };
 
     // En-passant target square: if no target, enPassantX/Y == -1
-    // enPassantX/enPassantY hold coordinates of the square a pawn would move to
-    // when capturing en-passant (the square the pawn jumped over).
     int enPassantX = -1;
     int enPassantY = -1;
 
