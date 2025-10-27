@@ -49,7 +49,7 @@ It’s designed for learning, experimentation, and testing AI strategies in ches
    
 	-	Graphical (GUI) version
    ```bash
-   ./build/ChessAI_GUI.app/Contents/MacOS/ChessAI_GUI   # macOS
+   ./build/ChessAI_GUI.app/Contents/MacOS/ChessAI_GUI   # macOS only
    ```
    or simply double-click the app in Finder.
 
