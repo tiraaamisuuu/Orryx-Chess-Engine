@@ -25,6 +25,11 @@ MainWindow::MainWindow(QWidget *parent)
 {
     QWidget *central = new QWidget();
     setCentralWidget(central);
+    // Lock the window size 
+    // Force fixed size based on board + side panel
+    int boardSize = 800; // or whatever size you want for the chessboard
+    int sidePanelWidth = 200;
+    setFixedSize(boardSize + sidePanelWidth, boardSize);
 
     debugPanel_->setReadOnly(true);
 

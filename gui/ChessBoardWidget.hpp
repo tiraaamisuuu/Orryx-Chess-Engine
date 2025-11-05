@@ -26,7 +26,6 @@ protected:
     void mousePressEvent(QMouseEvent *ev) override;
 
     // 🔹 Keep the board square and nicely scaled
-    void resizeEvent(QResizeEvent *event) override;
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
 
