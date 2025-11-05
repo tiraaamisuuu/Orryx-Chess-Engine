@@ -6,45 +6,54 @@
 #include <unordered_map>
 #include <chrono>
 
-class Board; // forward decl
+class Board; // forward declaration
 
 class AIPlayer {
 public:
-    // Construct AI for a colour ('W' or 'B') with a default search depth
+    // Constructor: color ('W' or 'B') and optional max search depth
     AIPlayer(char color, int maxDepth_ = 4);
 
-    // Primary public entrypoint (safe to pass a Board copy or temporary).
-    // The function may modify internal stats/TT so it is non-const.
+    // Main entry point: returns the best move as a string
     std::string findBestMove(Board board);
 
-    // Public evaluator so Board::display() / GUI can call it without accessing private members.
-    // This is const: it does not mutate the AI internal state.
+    // Evaluate board from AI's perspective (positive = good for AI)
     double evaluateBoard(const Board &board) const;
 
-    // Set / change search depth (runtime adjustable)
+    // Adjust search depth at runtime
     void setMaxDepth(int d) { maxDepth = d; }
 
+    // Generate all legal moves for a given board and color
     std::vector<std::string> generateAllLegalMoves(Board &board, char color) const;
+
+    // Generate only capture moves (for quiescence search)
+    std::vector<std::string> generateCaptures(Board &board, char color) const;
+
+    // Quiescence search: static evaluation with capture extensions
+    double quiescence(Board &board, double alpha, double beta, char color);
 
 private:
     char playerColor;
     int maxDepth;
     std::string lastMoveFrom;
 
-    // Search stats
+    // Statistics
     double totalThinkingTime = 0.0;
     int movesCount = 0;
 
-    // Transposition table entry
+    // Transposition table
     struct TTEntry {
         double value;
         int depth;
     };
     std::unordered_map<std::string, TTEntry> tt;
 
-    // Core search helpers
+    // Core search: alpha-beta with pruning
     double alphaBeta(Board &board, int depth, double alpha, double beta, bool maximizing);
+
+    // Evaluate piece value
     double pieceValue(char piece) const;
+
+    // Lightweight board key for transposition table
     std::string boardKey(const Board &board) const;
 };
 
