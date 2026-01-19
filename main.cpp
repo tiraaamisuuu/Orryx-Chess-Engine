@@ -1,3 +1,6 @@
+// main.cpp  (SFML 2.6.x compatible, Fedora-friendly)
+// Drop-in replacement for your entire file.
+
 #include <SFML/Graphics.hpp>
 #include <SFML/Window.hpp>
 
@@ -21,7 +24,7 @@ using u16 = std::uint16_t;
 using u32 = std::uint32_t;
 using u64 = std::uint64_t;
 
-static sf::Vector2f snap(sf::Vector2f p) { return {std::round(p.x), std::round(p.y)}; }
+static sf::Vector2f snap(sf::Vector2f p) { return sf::Vector2f(std::round(p.x), std::round(p.y)); }
 
 // ======================== Squares / Coords ========================
 struct Square { int file=0, rank=0; }; // 0..7
@@ -37,7 +40,7 @@ static std::string sqName(const Square& s){
 static sf::Vector2f squareToPixel(const Square& s, float tile, sf::Vector2f origin, bool flip){
     int vr = flip ? s.rank : (7 - s.rank);
     int vf = flip ? (7 - s.file) : s.file;
-    return {origin.x + vf*tile, origin.y + vr*tile};
+    return sf::Vector2f(origin.x + vf*tile, origin.y + vr*tile);
 }
 static std::optional<Square> pixelToSquare(sf::Vector2f p, float tile, sf::Vector2f origin, bool flip){
     float x=p.x-origin.x, y=p.y-origin.y;
@@ -52,9 +55,9 @@ static std::optional<Square> pixelToSquare(sf::Vector2f p, float tile, sf::Vecto
 static sf::Color lighten(sf::Color c, int add){
     auto clamp=[](int v){ return std::max(0,std::min(255,v)); };
     return sf::Color(
-        static_cast<u8>(clamp(int(c.r)+add)),
-        static_cast<u8>(clamp(int(c.g)+add)),
-        static_cast<u8>(clamp(int(c.b)+add)),
+        static_cast<sf::Uint8>(clamp(int(c.r)+add)),
+        static_cast<sf::Uint8>(clamp(int(c.g)+add)),
+        static_cast<sf::Uint8>(clamp(int(c.b)+add)),
         c.a
     );
 }
@@ -171,7 +174,6 @@ struct TranspositionTable {
     void resizeMB(size_t mb){
         size_t bytes = mb*1024ull*1024ull;
         size_t n = std::max<size_t>(1, bytes / sizeof(TTEntry));
-        // round to power of two
         size_t p=1;
         while(p < n) p<<=1;
         table.assign(p, TTEntry{});
@@ -203,7 +205,7 @@ struct Board {
 
     int epSquare = -1;          // en passant target square index or -1
     u8 castling = 0b1111;       // 1=WK,2=WQ,4=BK,8=BQ
-    int halfmoveClock = 0;      // for 50-move rule (we’ll display; not strictly enforced)
+    int halfmoveClock = 0;      // 50-move heuristic
     u64 hash = 0;
 
     const Zobrist* z = nullptr;
@@ -290,7 +292,6 @@ struct Board {
     bool isSquareAttacked(int sq, Color by) const {
         int r = sq/8, f = sq%8;
 
-        // pawns (from attacker perspective)
         int pr = r + ((by==Color::White) ? -1 : 1);
         if(pr>=0 && pr<8){
             if(f-1>=0){
@@ -303,7 +304,6 @@ struct Board {
             }
         }
 
-        // knights
         static const int kD[8][2]={{1,2},{2,1},{-1,2},{-2,1},{1,-2},{2,-1},{-1,-2},{-2,-1}};
         for(auto& d: kD){
             int nf=f+d[0], nr=r+d[1];
@@ -313,7 +313,6 @@ struct Board {
             }
         }
 
-        // king
         for(int df=-1; df<=1; df++){
             for(int dr=-1; dr<=1; dr++){
                 if(df==0&&dr==0) continue;
@@ -338,13 +337,11 @@ struct Board {
             return false;
         };
 
-        // diagonals
         if(ray(1,1,PieceType::Bishop,PieceType::Queen)) return true;
         if(ray(1,-1,PieceType::Bishop,PieceType::Queen)) return true;
         if(ray(-1,1,PieceType::Bishop,PieceType::Queen)) return true;
         if(ray(-1,-1,PieceType::Bishop,PieceType::Queen)) return true;
 
-        // orthogonals
         if(ray(1,0,PieceType::Rook,PieceType::Queen)) return true;
         if(ray(-1,0,PieceType::Rook,PieceType::Queen)) return true;
         if(ray(0,1,PieceType::Rook,PieceType::Queen)) return true;
@@ -359,7 +356,6 @@ struct Board {
         return isSquareAttacked(k, other(c));
     }
 
-    // Pseudo moves (don’t filter check here)
     void genPseudoMoves(std::vector<Move>& out) const {
         out.clear();
         Color us = stm;
@@ -381,7 +377,6 @@ struct Board {
                 int startRank = (us==Color::White) ? 1 : 6;
                 int promoRank = (us==Color::White) ? 7 : 0;
 
-                // forward
                 int nr = r + dir;
                 if(nr>=0 && nr<8){
                     int one = nr*8 + f;
@@ -402,7 +397,6 @@ struct Board {
                     }
                 }
 
-                // captures + EP
                 for(int df : {-1,1}){
                     int nf=f+df, tr=r+dir;
                     if(nf<0||nf>=8||tr<0||tr>=8) continue;
@@ -468,7 +462,6 @@ struct Board {
                     }
                 }
 
-                // Castling (pseudo; plus attack checks)
                 if(us==Color::White && i==4){
                     if((castling & 0b0001) && isNone(b[5]) && isNone(b[6]) &&
                        b[7].t==PieceType::Rook && b[7].c==Color::White){
@@ -516,11 +509,9 @@ struct Board {
         Piece moving = b[m.from];
         if(isNone(moving)) return false;
 
-        // halfmove clock reset on pawn move or capture
         bool resetHalf = (moving.t==PieceType::Pawn) || m.isCapture || m.isEnPassant;
         halfmoveClock = resetHalf ? 0 : (halfmoveClock + 1);
 
-        // update hash: remove old EP + castling + stm
         if(z){
             int oldEpF = (epSquare>=0) ? (epSquare%8) : 8;
             hash ^= z->epFile[oldEpF];
@@ -528,10 +519,8 @@ struct Board {
             if(stm==Color::Black) hash ^= z->sideToMove;
         }
 
-        // clear EP unless set by double pawn push
         epSquare = -1;
 
-        // capture
         if(m.isEnPassant){
             int dir = (moving.c==Color::White) ? -8 : 8;
             int capSq = int(m.to) + dir;
@@ -549,34 +538,28 @@ struct Board {
             }
         }
 
-        // hash: remove moving piece from from-square
         if(z){
             int mc = (moving.c==Color::White)?0:1;
             hash ^= z->psq[mc][(int)moving.t][(int)m.from];
         }
 
-        // move piece on board
         b[m.to] = b[m.from];
         b[m.from] = Piece{};
 
-        // hash: add moving piece to to-square (may become promoted later)
         if(z){
             int mc = (moving.c==Color::White)?0:1;
             hash ^= z->psq[mc][(int)moving.t][(int)m.to];
         }
 
-        // promotion
         if(m.promo != PieceType::None){
             if(z){
                 int mc = (moving.c==Color::White)?0:1;
-                // remove pawn at to, add promoted piece
                 hash ^= z->psq[mc][(int)PieceType::Pawn][(int)m.to];
                 hash ^= z->psq[mc][(int)m.promo][(int)m.to];
             }
             b[m.to].t = m.promo;
         }
 
-        // castle rook shift
         if(m.isCastle){
             if(moving.c==Color::White){
                 if(m.to==6){
@@ -617,7 +600,6 @@ struct Board {
             }
         }
 
-        // update castling rights based on king/rook move/capture
         auto clearIfTouches = [&](int sq, u8 mask){
             if(int(m.from)==sq || int(m.to)==sq) castling &= ~mask;
         };
@@ -628,7 +610,6 @@ struct Board {
         clearIfTouches(56, 0b1000);
         clearIfTouches(63, 0b0100);
 
-        // set EP if pawn double push
         if(moving.t==PieceType::Pawn){
             int fr = int(m.from)/8;
             int tr = int(m.to)/8;
@@ -637,16 +618,13 @@ struct Board {
             }
         }
 
-        // switch turn
         stm = other(stm);
 
-        // legality
         if(inCheck(other(stm))){
             undoMove(u);
             return false;
         }
 
-        // restore hash: add new EP + castling + stm
         if(z){
             int newEpF = (epSquare>=0) ? (epSquare%8) : 8;
             hash ^= z->epFile[newEpF];
@@ -658,13 +636,8 @@ struct Board {
     }
 
     void undoMove(const Undo& u){
-        // restore everything exactly
-        *this = *this; // no-op, clarity
-
-        // first restore from saved hash/rights
         const Move& m = u.m;
 
-        // restore STM
         stm = other(stm);
 
         epSquare = u.epSquare;
@@ -674,7 +647,6 @@ struct Board {
 
         Piece moved = b[m.to];
 
-        // undo castle rook shift
         if(m.isCastle){
             if(moved.c==Color::White){
                 if(m.to==6){ b[7]=b[5]; b[5]=Piece{}; }
@@ -685,16 +657,13 @@ struct Board {
             }
         }
 
-        // move piece back
         b[m.from] = b[m.to];
         b[m.to] = Piece{};
 
-        // undo promotion
         if(m.promo != PieceType::None){
             b[m.from].t = PieceType::Pawn;
         }
 
-        // restore capture
         if(m.isEnPassant){
             int dir = (b[m.from].c==Color::White) ? -8 : 8;
             int capSq = int(m.to) + dir;
@@ -727,8 +696,6 @@ struct Board {
     }
 
     bool insufficientMaterial() const {
-        // Very simple but useful:
-        // K vs K, K+N vs K, K+B vs K, K+B vs K+B (any)
         int wMinor=0,bMinor=0;
         int wB=0,wN=0,bB=0,bN=0;
         int wOther=0,bOther=0;
@@ -752,8 +719,6 @@ struct Board {
 };
 
 // ======================== Evaluation (PST + extras) ========================
-// PST indexed by square 0=a1 ... 63=h8 for WHITE.
-// For black, we mirror ranks.
 static int mirrorIndex(int idx){
     int f = idx%8, r=idx/8;
     int mr = 7-r;
@@ -847,8 +812,7 @@ static int evaluate(const Board& bd){
     int material=0;
     int pst=0;
 
-    int phase=0; // 0..24 approx
-    // phase weights: N=1,B=1,R=2,Q=4
+    int phase=0;
     for(int i=0;i<64;i++){
         Piece p=bd.b[i];
         if(isNone(p) || p.t==PieceType::King || p.t==PieceType::Pawn) continue;
@@ -860,8 +824,6 @@ static int evaluate(const Board& bd){
     bool endgameKing = (phase <= 8);
 
     int whiteBishops=0, blackBishops=0;
-
-    // pawn structure helpers
     int wpFile[8]{}, bpFile[8]{};
 
     for(int i=0;i<64;i++){
@@ -887,12 +849,10 @@ static int evaluate(const Board& bd){
         }
     }
 
-    // bishop pair
     int bishopPair = 0;
     if(whiteBishops>=2) bishopPair += 30;
     if(blackBishops>=2) bishopPair -= 30;
 
-    // doubled pawns penalty, isolated pawn penalty (very light)
     int pawnStruct=0;
     for(int f=0;f<8;f++){
         if(wpFile[f]>=2) pawnStruct -= 12*(wpFile[f]-1);
@@ -910,28 +870,6 @@ static int evaluate(const Board& bd){
         }
     }
 
-    // mobility (cheap proxy): count pseudo moves for side to move and opponent
-    // (We keep it cheap: generate pseudo moves only; legality is expensive at eval nodes.)
-    int mob=0;
-    {
-        Board tmp=bd;
-        std::vector<Move> m1;
-        tmp.genPseudoMoves(m1);
-        int us = (int)m1.size();
-        tmp.stm = other(tmp.stm);
-        std::vector<Move> m2;
-        tmp.genPseudoMoves(m2);
-        int them = (int)m2.size();
-        // mobility scaled lightly
-        int mscore = (us - them) * 2;
-        // Convert to White perspective:
-        mob = (bd.stm==Color::White) ? mscore : -mscore;
-        // We'll add mob in "absolute" evaluation below, so undo this later.
-        // Instead: compute for White:
-        // easier: evaluate from White's side always; so:
-    }
-
-    // Proper: mobility from White POV
     int mobility=0;
     {
         Board t=bd;
@@ -942,7 +880,6 @@ static int evaluate(const Board& bd){
         mobility = (int(w.size()) - int(b.size())) * 2;
     }
 
-    // king safety-ish: penalise uncastled king in middlegame
     int kingSafety=0;
     if(!endgameKing){
         int wK = bd.findKing(Color::White);
@@ -951,11 +888,8 @@ static int evaluate(const Board& bd){
         auto kingCentrePenalty = [&](int kIdx, Color c)->int{
             if(kIdx<0) return 0;
             int f=kIdx%8, r=kIdx/8;
-            // if king still near centre, small penalty
             int df = std::abs(f-4);
-            int dr = std::abs(r- (c==Color::White?0:7));
             int pen = 0;
-            // encourage king not to linger on e/d files without castling
             if(df<=1 && (r==0 || r==7)) pen += 10;
             if(df<=1 && (r==1 || r==6)) pen += 20;
             if(df<=1 && (r==2 || r==5)) pen += 35;
@@ -965,7 +899,6 @@ static int evaluate(const Board& bd){
         kingSafety -= kingCentrePenalty(wK, Color::White);
         kingSafety += kingCentrePenalty(bK, Color::Black);
 
-        // castling rights as proxy (if lost early, slight penalty)
         bool wCanCastle = (bd.castling & 0b0011);
         bool bCanCastle = (bd.castling & 0b1100);
         if(!wCanCastle) kingSafety -= 10;
@@ -973,8 +906,6 @@ static int evaluate(const Board& bd){
     }
 
     int scoreWhite = material + pst + bishopPair + pawnStruct + mobility + kingSafety;
-
-    // Return from side-to-move perspective for negamax
     return (bd.stm==Color::White) ? scoreWhite : -scoreWhite;
 }
 
@@ -994,11 +925,9 @@ struct SearchContext {
     int timeLimitMs=1000;
     bool stop=false;
 
-    // heuristics
     Move killer[128][2]{};
-    int history[2][64][64]{}; // [side][from][to]
-
-    std::vector<u64> repetition; // position hashes (per ply)
+    int history[2][64][64]{};
+    std::vector<u64> repetition;
 };
 
 static bool sameMove(const Move& a, const Move& b){
@@ -1006,7 +935,6 @@ static bool sameMove(const Move& a, const Move& b){
 }
 
 static int mvvLvaScore(const Board& bd, const Move& m){
-    // victim - attacker
     Piece a = bd.at(m.from);
     int attacker = pieceValue(a.t);
     int victim = 0;
@@ -1020,28 +948,19 @@ static int mvvLvaScore(const Board& bd, const Move& m){
 }
 
 static int scoreMove(const Board& bd, SearchContext& ctx, const Move& m, const Move& ttMove, int ply){
-    // TT move first
     if(ttMove.from==m.from && ttMove.to==m.to && ttMove.promo==m.promo) return 1000000;
 
-    int s=0;
-
-    // captures first (MVV-LVA)
     if(m.isCapture || m.isEnPassant){
-        s += 100000 + mvvLvaScore(bd, m);
-        return s;
+        return 100000 + mvvLvaScore(bd, m);
     }
 
-    // killer moves
     if(ply<128){
         if(sameMove(m, ctx.killer[ply][0])) return 90000;
         if(sameMove(m, ctx.killer[ply][1])) return 80000;
     }
 
-    // history heuristic
     int side = (bd.stm==Color::White)?0:1;
-    s += ctx.history[side][m.from][m.to];
-
-    return s;
+    return ctx.history[side][m.from][m.to];
 }
 
 static inline bool timeUp(SearchContext& ctx){
@@ -1066,11 +985,9 @@ static int quiescence(Board& bd, SearchContext& ctx, int alpha, int beta){
     if(stand >= beta) return beta;
     if(stand > alpha) alpha = stand;
 
-    // only captures (and promotions naturally come through as captures or quiet promos; we treat promos too)
     std::vector<Move> pseudo;
     bd.genPseudoMoves(pseudo);
 
-    // filter to "noisy" moves: captures or promotion (even if not capture)
     std::vector<Move> moves;
     moves.reserve(pseudo.size());
     for(const auto& m: pseudo){
@@ -1083,7 +1000,6 @@ static int quiescence(Board& bd, SearchContext& ctx, int alpha, int beta){
         }
     }
 
-    // simple ordering by MVV-LVA
     std::sort(moves.begin(), moves.end(), [&](const Move& a, const Move& b){
         return mvvLvaScore(bd,a) > mvvLvaScore(bd,b);
     });
@@ -1105,18 +1021,15 @@ static int negamax(Board& bd, SearchContext& ctx, int depth, int alpha, int beta
     if(timeUp(ctx)) return 0;
     ctx.stats.nodes++;
 
-    // draw-ish
     if(bd.insufficientMaterial()) return 0;
-    if(bd.halfmoveClock >= 100) return 0; // 50-move rule heuristic cut
+    if(bd.halfmoveClock >= 100) return 0;
 
-    // repetition (simple): if current hash appears earlier in line -> draw
     int repCount=0;
     for(u64 h : ctx.repetition){
         if(h==bd.hash) repCount++;
     }
     if(repCount>=2) return 0;
 
-    // TT probe
     Move ttMove{};
     if(auto* e = ctx.tt.probe(bd.hash)){
         if(e->key==bd.hash){
@@ -1139,11 +1052,10 @@ static int negamax(Board& bd, SearchContext& ctx, int depth, int alpha, int beta
     }
 
     if(moves.empty()){
-        if(bd.inCheck(bd.stm)) return -MATE + ply; // mate in ply
-        return 0; // stalemate
+        if(bd.inCheck(bd.stm)) return -MATE + ply;
+        return 0;
     }
 
-    // order moves
     std::sort(moves.begin(), moves.end(), [&](const Move& a, const Move& b){
         return scoreMove(bd, ctx, a, ttMove, ply) > scoreMove(bd, ctx, b, ttMove, ply);
     });
@@ -1161,13 +1073,11 @@ static int negamax(Board& bd, SearchContext& ctx, int depth, int alpha, int beta
 
         ctx.repetition.push_back(bd.hash);
 
-        // simple LMR (very conservative): reduce late quiet moves
         int newDepth = depth - 1;
         int score=0;
 
         bool isQuiet = !(m.isCapture || m.isEnPassant) && (m.promo==PieceType::None);
         if(newDepth >= 3 && i >= 4 && isQuiet && !bd.inCheck(bd.stm)){
-            // reduced search
             score = -negamax(bd, ctx, newDepth-1, -alpha-1, -alpha, ply+1);
             if(score > alpha){
                 score = -negamax(bd, ctx, newDepth, -beta, -alpha, ply+1);
@@ -1188,7 +1098,6 @@ static int negamax(Board& bd, SearchContext& ctx, int depth, int alpha, int beta
 
         alpha = std::max(alpha, score);
         if(alpha >= beta){
-            // killer/history for quiet beta-cutoffs
             if(isQuiet && ply<128){
                 if(!sameMove(ctx.killer[ply][0], m)){
                     ctx.killer[ply][1] = ctx.killer[ply][0];
@@ -1201,7 +1110,6 @@ static int negamax(Board& bd, SearchContext& ctx, int depth, int alpha, int beta
         }
     }
 
-    // Store in TT
     TTFlag flag = TTFlag::Exact;
     if(best <= originalAlpha) flag = TTFlag::Upper;
     else if(best >= beta) flag = TTFlag::Lower;
@@ -1216,7 +1124,6 @@ static Move searchBestMove(Board& bd, SearchContext& ctx, int maxDepth, int time
     ctx.timeLimitMs = timeLimitMs;
     ctx.stop = false;
 
-    // Ensure repetition starts with current hash
     ctx.repetition.clear();
     ctx.repetition.push_back(bd.hash);
 
@@ -1227,11 +1134,9 @@ static Move searchBestMove(Board& bd, SearchContext& ctx, int maxDepth, int time
     Move bestMove = rootMoves[0];
     int bestScore = -INF;
 
-    // iterative deepening
     for(int d=1; d<=maxDepth; d++){
         if(timeUp(ctx)) break;
 
-        // aspiration window helps a little
         int alpha = -INF;
         int beta  = INF;
         if(d >= 3){
@@ -1239,7 +1144,6 @@ static Move searchBestMove(Board& bd, SearchContext& ctx, int maxDepth, int time
             beta  = bestScore + 50;
         }
 
-        // order root moves by TT/history/captures
         Move ttMove{};
         if(auto* e = ctx.tt.probe(bd.hash)){
             if(e->key==bd.hash) ttMove = e->best;
@@ -1272,11 +1176,9 @@ static Move searchBestMove(Board& bd, SearchContext& ctx, int maxDepth, int time
 
             alpha = std::max(alpha, score);
 
-            // aspiration fail-high -> widen
             if(alpha >= beta){
                 alpha = -INF;
                 beta = INF;
-                // re-search this move with full window
                 Undo u2{};
                 if(bd.makeMove(m,u2)){
                     ctx.repetition.push_back(bd.hash);
@@ -1318,7 +1220,7 @@ struct PieceAtlas {
                 std::string key = c+n;
                 sf::Texture t;
                 if(!t.loadFromFile(dir + "/" + key + ".png")) return false;
-                t.setSmooth(false); // CRISP
+                t.setSmooth(false);
                 tex.emplace(key, std::move(t));
             }
         }
@@ -1347,26 +1249,31 @@ static std::string modeStr(GameMode m){
 // ======================== Main ========================
 int main(){
     constexpr unsigned windowW=1240, windowH=880;
-    sf::RenderWindow window(sf::VideoMode(sf::Vector2u(windowW, windowH)), "Chess Engine (SFML 3) - NEA Build");
+    sf::RenderWindow window(sf::VideoMode(windowW, windowH), "Chess Engine (SFML 2.6) - NEA Build");
     window.setFramerateLimit(60);
 
     const float tile = 96.f;
-    const sf::Vector2f boardOrigin{40.f, 40.f};
-    const sf::FloatRect panel(sf::Vector2f(boardOrigin.x + 8.f*tile + 30.f, boardOrigin.y),
-                              sf::Vector2f(420.f, 8.f*tile));
+    const sf::Vector2f boardOrigin(40.f, 40.f);
 
-    // Font (no spam): only open if file exists
+    // SFML2: don't use FloatRect.position/size – use explicit vectors.
+    const sf::Vector2f panelPos(boardOrigin.x + 8.f*tile + 30.f, boardOrigin.y);
+    const sf::Vector2f panelSize(420.f, 8.f*tile);
+
+    // Font: include Linux candidates (and keep your mac ones harmless)
     sf::Font font;
     bool hasFont=false;
     {
         std::vector<std::string> candidates = {
+            "assets/fonts/Inter-Regular.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
             "/System/Library/Fonts/Supplemental/Arial.ttf",
             "/System/Library/Fonts/Supplemental/Verdana.ttf",
             "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf"
         };
         for(const auto& p : candidates){
             if(std::filesystem::exists(p)){
-                hasFont = font.openFromFile(p);
+                hasFont = font.loadFromFile(p);
                 if(hasFont) break;
             }
         }
@@ -1381,9 +1288,8 @@ int main(){
     board.reset();
 
     SearchContext search;
-    search.tt.resizeMB(64); // bump if you want; 64MB is plenty on your machine
+    search.tt.resizeMB(64);
 
-    // Gameplay undo stack (for GUI)
     std::vector<Undo> undoStack;
     std::vector<std::string> moveListUCI;
 
@@ -1409,19 +1315,17 @@ int main(){
 
     std::string status = hasIcons ? "Ready." : "Missing icons: assets/pieces_png/*.png";
 
-    // selection/drag state
     std::optional<int> selectedSq;
     std::vector<Move> selectedMoves;
     std::optional<Move> lastMove;
 
     bool dragging=false;
     std::optional<int> dragFrom;
-    sf::Vector2f dragPos{0,0};
+    sf::Vector2f dragPos(0,0);
 
-    // AI settings
     int aiMaxDepth = 8;
-    int aiTimeMs = 2000;      // real time control per move (iterative deepening)
-    int aiDelayMs = 350;     // for AIvAI pacing only
+    int aiTimeMs = 2000;
+    int aiDelayMs = 350;
     sf::Clock aiClock;
 
     bool flipBoard=false;
@@ -1458,10 +1362,8 @@ int main(){
         });
         if(it==moves.end()) return false;
 
-        // If multiple promotions exist, default to queen in GUI feel (but move list supports underpromotions).
         Move chosen = *it;
         if(chosen.promo!=PieceType::None && chosen.promo!=PieceType::Queen){
-            // Prefer queen promotion when present
             auto itQ = std::find_if(moves.begin(), moves.end(), [&](const Move& m){
                 return m.to==to && m.promo==PieceType::Queen;
             });
@@ -1481,49 +1383,49 @@ int main(){
     SearchStats lastSearchStats{};
 
     while(window.isOpen()){
-        while(auto ev = window.pollEvent()){
-            const sf::Event& e = *ev;
+        sf::Event e;
+        while(window.pollEvent(e)){
+            if(e.type == sf::Event::Closed) window.close();
 
-            if(e.is<sf::Event::Closed>()) window.close();
+            if(e.type == sf::Event::KeyPressed){
+                auto code = e.key.code;
 
-            if(const auto* key = e.getIf<sf::Event::KeyPressed>()){
-                using K = sf::Keyboard::Key;
-                if(key->code == K::Escape) window.close();
+                if(code == sf::Keyboard::Escape) window.close();
 
                 if(mode==GameMode::Menu){
-                    if(key->code == K::Num1) pending = GameMode::PvP;
-                    if(key->code == K::Num2) pending = GameMode::PvAI;
-                    if(key->code == K::Num3) pending = GameMode::AIvAI;
-                    if(key->code == K::Enter){
+                    if(code == sf::Keyboard::Num1) pending = GameMode::PvP;
+                    if(code == sf::Keyboard::Num2) pending = GameMode::PvAI;
+                    if(code == sf::Keyboard::Num3) pending = GameMode::AIvAI;
+                    if(code == sf::Keyboard::Enter){
                         mode = pending;
                         resetGame();
                         status = "Game started: " + modeStr(mode);
                     }
                 } else {
-                    if(key->code == K::R) resetGame();
-                    if(key->code == K::U) { popUndo(); status = "Undo."; }
+                    if(code == sf::Keyboard::R) resetGame();
+                    if(code == sf::Keyboard::U) { popUndo(); status = "Undo."; }
 
-                    if(key->code == K::F){
+                    if(code == sf::Keyboard::F){
                         flipBoard = !flipBoard;
                         status = std::string("Flip: ") + (flipBoard ? "ON" : "OFF");
                     }
 
-                    // depth cap
-                    if(key->code == K::Equal || key->code == K::Add){
+                    // depth
+                    if(code == sf::Keyboard::Equal || code == sf::Keyboard::Add){
                         aiMaxDepth = std::min(100, aiMaxDepth+1);
                         status = "AI max depth = " + std::to_string(aiMaxDepth);
                     }
-                    if(key->code == K::Hyphen || key->code == K::Subtract){
+                    if(code == sf::Keyboard::Hyphen || code == sf::Keyboard::Subtract){
                         aiMaxDepth = std::max(1, aiMaxDepth-1);
                         status = "AI max depth = " + std::to_string(aiMaxDepth);
                     }
 
                     // time per move
-                    if(key->code == K::T){
+                    if(code == sf::Keyboard::T){
                         aiTimeMs = std::min(5000, aiTimeMs + 100);
                         status = "AI time = " + std::to_string(aiTimeMs) + "ms";
                     }
-                    if(key->code == K::Y){
+                    if(code == sf::Keyboard::Y){
                         aiTimeMs = std::max(100, aiTimeMs - 100);
                         status = "AI time = " + std::to_string(aiTimeMs) + "ms";
                     }
@@ -1531,11 +1433,10 @@ int main(){
             }
 
             if(mode!=GameMode::Menu){
-                // Mouse only if it’s a human turn
                 if(isHumanSide(board.stm)){
-                    if(const auto* mb = e.getIf<sf::Event::MouseButtonPressed>()){
-                        if(mb->button == sf::Mouse::Button::Left){
-                            sf::Vector2f mp{float(mb->position.x), float(mb->position.y)};
+                    if(e.type == sf::Event::MouseButtonPressed){
+                        if(e.mouseButton.button == sf::Mouse::Left){
+                            sf::Vector2f mp(float(e.mouseButton.x), float(e.mouseButton.y));
                             auto sq = pixelToSquare(mp, tile, boardOrigin, flipBoard);
                             if(!sq) continue;
                             int idx = sqToIndex(*sq);
@@ -1552,14 +1453,14 @@ int main(){
                         }
                     }
 
-                    if(const auto* mm = e.getIf<sf::Event::MouseMoved>()){
-                        if(dragging) dragPos = sf::Vector2f(float(mm->position.x), float(mm->position.y));
+                    if(e.type == sf::Event::MouseMoved){
+                        if(dragging) dragPos = sf::Vector2f(float(e.mouseMove.x), float(e.mouseMove.y));
                     }
 
-                    if(const auto* mr = e.getIf<sf::Event::MouseButtonReleased>()){
-                        if(mr->button == sf::Mouse::Button::Left){
+                    if(e.type == sf::Event::MouseButtonReleased){
+                        if(e.mouseButton.button == sf::Mouse::Left){
                             if(dragging && dragFrom){
-                                sf::Vector2f mp{float(mr->position.x), float(mr->position.y)};
+                                sf::Vector2f mp(float(e.mouseButton.x), float(e.mouseButton.y));
                                 auto sq = pixelToSquare(mp, tile, boardOrigin, flipBoard);
                                 if(sq){
                                     int to = sqToIndex(*sq);
@@ -1582,12 +1483,9 @@ int main(){
                 shouldMove = (aiClock.getElapsedTime().asMilliseconds() >= aiDelayMs);
             }
             if(shouldMove){
-                // Don’t search if game is over
                 std::vector<Move> legal;
                 board.genLegalMoves(legal);
-                if(legal.empty()){
-                    // do nothing; UI will show mate/stalemate
-                } else {
+                if(!legal.empty()){
                     Move m = searchBestMove(board, search, aiMaxDepth, aiTimeMs);
                     lastSearchStats = search.stats;
 
@@ -1605,21 +1503,24 @@ int main(){
         // -------- Menu --------
         if(mode==GameMode::Menu){
             if(hasFont){
-                sf::Text t(font);
+                sf::Text t;
+                t.setFont(font);
                 t.setCharacterSize(30);
                 t.setFillColor(sf::Color(240,240,240));
                 t.setString("Choose mode:\n\n1) Player vs Player\n2) Player vs AI (you are White)\n3) Watch AI vs AI\n\nPress Enter to start");
                 t.setPosition(snap(sf::Vector2f(60.f, 80.f)));
                 window.draw(t);
 
-                sf::Text s(font);
+                sf::Text s;
+                s.setFont(font);
                 s.setCharacterSize(22);
                 s.setFillColor(sf::Color(230,230,230));
                 s.setString("Selected: " + modeStr(pending));
                 s.setPosition(snap(sf::Vector2f(60.f, 380.f)));
                 window.draw(s);
 
-                sf::Text a(font);
+                sf::Text a;
+                a.setFont(font);
                 a.setCharacterSize(18);
                 a.setFillColor(sf::Color(200,200,200));
                 a.setString(std::string("Icons: ") + (hasIcons ? "loaded" : "missing (assets/pieces_png)"));
@@ -1650,7 +1551,6 @@ int main(){
             }
         }
 
-        // highlight legal destinations
         for(const auto& m : selectedMoves){
             sf::RectangleShape hl(sf::Vector2f(tile,tile));
             hl.setPosition(snap(squareToPixel(indexToSq(m.to), tile, boardOrigin, flipBoard)));
@@ -1658,7 +1558,6 @@ int main(){
             window.draw(hl);
         }
 
-        // highlight checked king square
         for(Color c : {Color::White, Color::Black}){
             if(board.inCheck(c)){
                 int k = board.findKing(c);
@@ -1671,22 +1570,23 @@ int main(){
             }
         }
 
-        // coordinates
         if(hasFont){
             for(int f=0; f<8; f++){
-                sf::Text t(font); t.setCharacterSize(14);
+                sf::Text t;
+                t.setFont(font);
+                t.setCharacterSize(14);
                 t.setFillColor(sf::Color(30,30,30));
                 t.setString(std::string(1, char('a'+f)));
-                // bottom labels depend on flip
                 float y = flipBoard ? (boardOrigin.y + 0.f*tile + 6.f) : (boardOrigin.y + 8.f*tile + 6.f);
                 t.setPosition(snap(sf::Vector2f(boardOrigin.x + (flipBoard?(7-f):f)*tile + 4.f, y)));
                 window.draw(t);
             }
             for(int r=0; r<8; r++){
-                sf::Text t(font); t.setCharacterSize(14);
+                sf::Text t;
+                t.setFont(font);
+                t.setCharacterSize(14);
                 t.setFillColor(sf::Color(30,30,30));
                 t.setString(std::to_string(r+1));
-                // left labels depend on flip
                 int rr = flipBoard ? (7-r) : r;
                 auto pos = squareToPixel(Square{0,rr}, tile, boardOrigin, flipBoard);
                 t.setPosition(snap(sf::Vector2f(boardOrigin.x - 18.f, pos.y + 4.f)));
@@ -1694,7 +1594,6 @@ int main(){
             }
         }
 
-        // draw pieces (sprites)
         auto drawPiece = [&](const Piece& p, sf::Vector2f pos){
             if(!hasIcons) return;
             const sf::Texture* tex = atlas.get(p);
@@ -1721,18 +1620,19 @@ int main(){
         }
 
         // panel
-        sf::RectangleShape panelBg(panel.size);
-        panelBg.setPosition(panel.position);
+        sf::RectangleShape panelBg(panelSize);
+        panelBg.setPosition(panelPos);
         panelBg.setFillColor(sf::Color(25,25,30));
         window.draw(panelBg);
 
         if(hasFont){
             auto line = [&](float y, const std::string& txt, int size=16, sf::Color col=sf::Color(230,230,230)){
-                sf::Text t(font);
+                sf::Text t;
+                t.setFont(font);
                 t.setCharacterSize(size);
                 t.setFillColor(col);
                 t.setString(txt);
-                t.setPosition(snap(sf::Vector2f(panel.position.x + 14.f, panel.position.y + y)));
+                t.setPosition(snap(sf::Vector2f(panelPos.x + 14.f, panelPos.y + y)));
                 window.draw(t);
             };
 
@@ -1751,7 +1651,6 @@ int main(){
             }
             if(board.insufficientMaterial()) line(170.f, "Note: insufficient material draw likely", 14, sf::Color(200,200,200));
 
-            // search stats
             {
                 std::ostringstream oss;
                 oss << "Last AI search: depth " << lastSearchStats.depthReached
@@ -1770,20 +1669,14 @@ int main(){
                 line(330.f, "Legal moves: " + std::to_string((int)selectedMoves.size()), 14, sf::Color(200,200,200));
             }
 
-            // move list
             line(372.f, "Moves:", 16);
             int y=396;
             int start = std::max(0, (int)moveListUCI.size()-18);
             for(int i=start; i<(int)moveListUCI.size(); i++){
-                std::string prefix;
-                if(i%2==0){
-                    prefix = std::to_string(i/2 + 1) + ". ";
-                } else {
-                    prefix = "   ";
-                }
+                std::string prefix = (i%2==0) ? (std::to_string(i/2 + 1) + ". ") : "   ";
                 line((float)y, prefix + moveListUCI[i], 14, sf::Color(210,210,210));
                 y += 18;
-                if(y > (int)panel.position.y + (int)panel.size.y - 20) break;
+                if(y > (int)(panelPos.y + panelSize.y - 20.f)) break;
             }
         }
 
