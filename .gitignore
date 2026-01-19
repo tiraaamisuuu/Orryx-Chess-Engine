@@ -1,0 +1,14 @@
+# build outputs
+gui
+*.o
+*.out
+build/
+cmake-build-*/
+
+# OS junk
+.DS_Store
+
+# editor junk
+.vscode/
+.idea/
+
