@@ -4,6 +4,7 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Window.hpp>
 
+#include <iomanip>
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -1210,6 +1211,112 @@ static Move searchBestMove(Board& bd, SearchContext& ctx, int maxDepth, int time
     return bestMove;
 }
 
+static float drawWrappedText(sf::RenderTarget& target,
+                             const sf::Font& font,
+                             const std::string& text,
+                             unsigned characterSize,
+                             sf::Vector2f pos,
+                             float maxWidth,
+                             sf::Color col)
+{
+    sf::Text t;
+    t.setFont(font);
+    t.setCharacterSize(characterSize);
+    t.setFillColor(col);
+
+    const float lineSpacing = font.getLineSpacing(characterSize);
+    float y = pos.y;
+
+    auto flushLine = [&](const std::string& line){
+        if(line.empty()) return;
+        t.setString(line);
+        t.setPosition(snap(sf::Vector2f(pos.x, y)));
+        target.draw(t);
+        y += lineSpacing;
+    };
+
+    auto fits = [&](const std::string& candidate)->bool{
+        t.setString(candidate);
+        return t.getLocalBounds().width <= maxWidth;
+    };
+
+    std::string currentLine;
+    std::string currentWord;
+
+    auto commitWord = [&](){
+        if(currentWord.empty()) return;
+
+        if(currentLine.empty()){
+            if(fits(currentWord)){
+                currentLine = currentWord;
+                currentWord.clear();
+                return;
+            }
+        } else {
+            std::string trial = currentLine + " " + currentWord;
+            if(fits(trial)){
+                currentLine = trial;
+                currentWord.clear();
+                return;
+            }
+        }
+
+        flushLine(currentLine);
+        currentLine = currentWord;
+        currentWord.clear();
+    };
+
+    for(char ch : text){
+        if(ch == '\n'){
+            commitWord();
+            flushLine(currentLine);
+            currentLine.clear();
+            continue;
+        }
+        if(ch == ' '){
+            commitWord();
+            continue;
+        }
+        currentWord.push_back(ch);
+    }
+
+    commitWord();
+    flushLine(currentLine);
+
+    return y - pos.y;
+}
+
+static std::string extractPVFromTT(Board bd, SearchContext& ctx, int maxPlies=12){
+    std::string pv;
+    std::vector<u64> seen;
+    seen.reserve((size_t)maxPlies+2);
+
+    for(int ply=0; ply<maxPlies; ply++){
+        if(std::find(seen.begin(), seen.end(), bd.hash) != seen.end()) break;
+        seen.push_back(bd.hash);
+
+        TTEntry* e = ctx.tt.probe(bd.hash);
+        if(!e || e->key != bd.hash) break;
+
+        Move m = e->best;
+
+        std::vector<Move> leg;
+        bd.genLegalMoves(leg);
+
+        auto it = std::find_if(leg.begin(), leg.end(), [&](const Move& x){
+            return x.from==m.from && x.to==m.to && x.promo==m.promo;
+        });
+        if(it == leg.end()) break;
+
+        Undo u{};
+        if(!bd.makeMove(*it, u)) break;
+
+        if(!pv.empty()) pv += " ";
+        pv += moveToUCI(*it);
+    }
+    return pv;
+}
+
 // ======================== Assets ========================
 struct PieceAtlas {
     std::map<std::string, sf::Texture> tex;
@@ -1274,7 +1381,7 @@ int main(){
           // macOS (harmless on Linux)
           "/System/Library/Fonts/Supplemental/Arial.ttf",
           "/System/Library/Fonts/Supplemental/Verdana.ttf",
-          "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf"        
+          "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf"
         };
         for(const auto& p : candidates){
             if(std::filesystem::exists(p)){
@@ -1292,6 +1399,7 @@ int main(){
     board.setZobrist(&zob);
     board.reset();
 
+    // UI thread never calls search now; search runs in a worker thread.
     SearchContext search;
     search.tt.resizeMB(64);
 
@@ -1385,7 +1493,60 @@ int main(){
         return false;
     };
 
+    // ---------------- AI threading (prevents UI freezing / Fedora "not responding") ----------------
+    std::atomic<bool> aiThinking(false);
+    std::atomic<bool> aiMoveReady(false);
+    Move aiChosenMove{};
     SearchStats lastSearchStats{};
+    std::string lastPV;
+    std::mutex aiMutex;
+    sf::Clock thinkClock;
+    std::thread aiThread;
+
+    auto stopAiThread = [&](){
+        if(aiThread.joinable()) aiThread.join();
+        aiThinking.store(false);
+        aiMoveReady.store(false);
+    };
+
+    auto startAiThink = [&](){
+        if(aiThinking.load()) return;
+
+        // don't search if game is over
+        std::vector<Move> legal;
+        board.genLegalMoves(legal);
+        if(legal.empty()) return;
+
+        // join previous finished thread if needed
+        if(aiThread.joinable()) aiThread.join();
+
+        aiThinking.store(true);
+        aiMoveReady.store(false);
+        thinkClock.restart();
+
+        // snapshot board/settings so thread is safe
+        Board searchBoard = board;
+        int threadMaxDepth = aiMaxDepth;
+        int threadTimeMs   = aiTimeMs;
+
+        aiThread = std::thread([&, searchBoard, threadMaxDepth, threadTimeMs]() mutable {
+            SearchContext localCtx;
+            localCtx.tt.resizeMB(64);
+
+            Move m = searchBestMove(searchBoard, localCtx, threadMaxDepth, threadTimeMs);
+            std::string pv = extractPVFromTT(searchBoard, localCtx, 12);
+
+            {
+                std::lock_guard<std::mutex> lock(aiMutex);
+                aiChosenMove = m;
+                lastSearchStats = localCtx.stats;
+                lastPV = pv;
+            }
+
+            aiMoveReady.store(true);
+            aiThinking.store(false);
+        });
+    };
 
     while(window.isOpen()){
         sf::Event e;
@@ -1425,20 +1586,21 @@ int main(){
                         status = "AI max depth = " + std::to_string(aiMaxDepth);
                     }
 
-                    // time per move
+                    // time per move (let it go big if you want)
                     if(code == sf::Keyboard::T){
-                        aiTimeMs = std::min(5000, aiTimeMs + 100);
+                        aiTimeMs = std::min(30000, aiTimeMs + 250);
                         status = "AI time = " + std::to_string(aiTimeMs) + "ms";
                     }
                     if(code == sf::Keyboard::Y){
-                        aiTimeMs = std::max(100, aiTimeMs - 100);
+                        aiTimeMs = std::max(100, aiTimeMs - 250);
                         status = "AI time = " + std::to_string(aiTimeMs) + "ms";
                     }
                 }
             }
 
             if(mode!=GameMode::Menu){
-                if(isHumanSide(board.stm)){
+                // Only allow human input if it's human side AND we aren't mid-AI-search (prevents weirdness in PvAI)
+                if(isHumanSide(board.stm) && !aiThinking.load()){
                     if(e.type == sf::Event::MouseButtonPressed){
                         if(e.mouseButton.button == sf::Mouse::Left){
                             sf::Vector2f mp(float(e.mouseButton.x), float(e.mouseButton.y));
@@ -1481,24 +1643,34 @@ int main(){
             }
         }
 
-        // AI turn
+        // AI turn (NON-BLOCKING)
         if(mode!=GameMode::Menu && !isHumanSide(board.stm)){
             bool shouldMove = true;
             if(mode==GameMode::AIvAI){
                 shouldMove = (aiClock.getElapsedTime().asMilliseconds() >= aiDelayMs);
             }
+
             if(shouldMove){
-                std::vector<Move> legal;
-                board.genLegalMoves(legal);
-                if(!legal.empty()){
-                    Move m = searchBestMove(board, search, aiMaxDepth, aiTimeMs);
-                    lastSearchStats = search.stats;
+                if(!aiThinking.load() && !aiMoveReady.load()){
+                    startAiThink();
+                }
+
+                if(aiMoveReady.load()){
+                    Move m;
+                    {
+                        std::lock_guard<std::mutex> lock(aiMutex);
+                        m = aiChosenMove;
+                    }
 
                     if(pushMove(m)){
                         lastMove = m;
                         aiClock.restart();
                         status = "AI: " + moveToUCI(m);
+                    } else {
+                        status = "AI produced illegal move (should not happen).";
                     }
+
+                    aiMoveReady.store(false);
                 }
             }
         }
@@ -1631,62 +1803,109 @@ int main(){
         window.draw(panelBg);
 
         if(hasFont){
-            auto line = [&](float y, const std::string& txt, int size=16, sf::Color col=sf::Color(230,230,230)){
-                sf::Text t;
-                t.setFont(font);
-                t.setCharacterSize(size);
-                t.setFillColor(col);
-                t.setString(txt);
-                t.setPosition(snap(sf::Vector2f(panelPos.x + 14.f, panelPos.y + y)));
-                window.draw(t);
+            auto WRAP = [&](float y, const std::string& txt, int size=14, sf::Color col=sf::Color(230,230,230)){
+                return drawWrappedText(window, font, txt, (unsigned)size,
+                                      sf::Vector2f(panelPos.x + 14.f, panelPos.y + y),
+                                      panelSize.x - 28.f,
+                                      col);
             };
 
-            line(16.f, "Mode: " + modeStr(mode), 18);
-            line(46.f, std::string("Turn: ") + (board.stm==Color::White ? "White" : "Black"));
-            line(74.f, "AI: maxDepth " + std::to_string(aiMaxDepth) + " (+/-), time " + std::to_string(aiTimeMs) + "ms (T/Y)");
-            line(102.f, "R reset   U undo   F flip   Esc quit", 14, sf::Color(200,200,200));
+            float y = 16.f;
+
+            y += WRAP(y, "Mode: " + modeStr(mode), 18) + 6.f;
+            y += WRAP(y, std::string("Turn: ") + (board.stm==Color::White ? "White" : "Black"), 14) + 6.f;
+
+            {
+                std::ostringstream oss;
+                oss << "AI: maxDepth " << aiMaxDepth << " (+/-), time " << aiTimeMs << "ms (T/Y)";
+                y += WRAP(y, oss.str(), 14, sf::Color(210,210,210)) + 4.f;
+            }
+            y += WRAP(y, "R reset   U undo   F flip   Esc quit", 14, sf::Color(200,200,200)) + 10.f;
 
             std::vector<Move> moves;
             board.genLegalMoves(moves);
             if(moves.empty()){
-                if(board.inCheck(board.stm)) line(140.f, "State: CHECKMATE", 18, sf::Color(255,180,180));
-                else line(140.f, "State: STALEMATE", 18, sf::Color(255,220,180));
+                if(board.inCheck(board.stm)) y += WRAP(y, "State: CHECKMATE", 18, sf::Color(255,180,180)) + 6.f;
+                else y += WRAP(y, "State: STALEMATE", 18, sf::Color(255,220,180)) + 6.f;
             } else {
-                if(board.inCheck(board.stm)) line(140.f, "State: CHECK", 18, sf::Color(255,200,160));
+                if(board.inCheck(board.stm)) y += WRAP(y, "State: CHECK", 18, sf::Color(255,200,160)) + 6.f;
             }
-            if(board.insufficientMaterial()) line(170.f, "Note: insufficient material draw likely", 14, sf::Color(200,200,200));
+            if(board.insufficientMaterial()){
+                y += WRAP(y, "Note: insufficient material draw likely", 14, sf::Color(200,200,200)) + 6.f;
+            }
+
+            if(aiThinking.load()){
+                int ms = thinkClock.getElapsedTime().asMilliseconds();
+                std::ostringstream oss;
+                oss << "AI thinking... " << ms << "ms / " << aiTimeMs << "ms";
+                y += WRAP(y, oss.str(), 14, sf::Color(255,210,170)) + 8.f;
+            }
+
+            // search stats (more detailed)
+            SearchStats s;
+            std::string pv;
+            {
+                std::lock_guard<std::mutex> lock(aiMutex);
+                s = lastSearchStats;
+                pv = lastPV;
+            }
+
+            double nps = (s.timeMs > 0) ? (double(s.nodes) * 1000.0 / double(s.timeMs)) : 0.0;
+            double qPct = (s.nodes > 0) ? (100.0 * double(s.qnodes) / double(s.nodes)) : 0.0;
+            double pawns = double(s.bestScore) / 100.0;
+
+            y += WRAP(y, "Last AI search:", 16, sf::Color(220,220,220)) + 2.f;
 
             {
                 std::ostringstream oss;
-                oss << "Last AI search: depth " << lastSearchStats.depthReached
-                    << ", score " << lastSearchStats.bestScore
-                    << ", nodes " << lastSearchStats.nodes
-                    << " (q " << lastSearchStats.qnodes << ")"
-                    << ", " << lastSearchStats.timeMs << "ms";
-                line(204.f, oss.str(), 14, sf::Color(200,200,200));
+                oss << "Depth " << s.depthReached
+                    << " | Score " << std::fixed << std::setprecision(2) << pawns << " pawns"
+                    << " | Time " << s.timeMs << "ms";
+                y += WRAP(y, oss.str(), 14, sf::Color(200,200,200)) + 2.f;
+            }
+            {
+                std::ostringstream oss;
+                oss << "Nodes " << s.nodes
+                    << " | Q " << s.qnodes
+                    << " (" << std::fixed << std::setprecision(1) << qPct << "%)"
+                    << " | NPS " << (long long)nps;
+                y += WRAP(y, oss.str(), 14, sf::Color(200,200,200)) + 6.f;
+            }
+            if(!pv.empty()){
+                y += WRAP(y, "PV: " + pv, 14, sf::Color(200,220,255)) + 8.f;
             }
 
-            line(234.f, "Status:", 16);
-            line(258.f, status, 14, sf::Color(220,220,220));
+            // position meta (useful for debugging / writeup)
+            {
+                std::ostringstream meta;
+                meta << "Pos: halfmove " << board.halfmoveClock
+                     << " | ep " << (board.epSquare>=0 ? sqName(indexToSq(board.epSquare)) : "-")
+                     << " | castling " << int(board.castling);
+                y += WRAP(y, meta.str(), 14, sf::Color(190,190,190)) + 8.f;
+            }
+
+            y += WRAP(y, "Status:", 16) + 2.f;
+            y += WRAP(y, status, 14, sf::Color(220,220,220)) + 8.f;
 
             if(selectedSq){
-                line(304.f, "Selected: " + sqName(indexToSq(*selectedSq)), 16);
-                line(330.f, "Legal moves: " + std::to_string((int)selectedMoves.size()), 14, sf::Color(200,200,200));
+                y += WRAP(y, "Selected: " + sqName(indexToSq(*selectedSq)), 16) + 2.f;
+                y += WRAP(y, "Legal moves: " + std::to_string((int)selectedMoves.size()), 14, sf::Color(200,200,200)) + 8.f;
             }
 
-            line(372.f, "Moves:", 16);
-            int y=396;
+            y += WRAP(y, "Moves:", 16) + 2.f;
+            float listY = y;
             int start = std::max(0, (int)moveListUCI.size()-18);
             for(int i=start; i<(int)moveListUCI.size(); i++){
                 std::string prefix = (i%2==0) ? (std::to_string(i/2 + 1) + ". ") : "   ";
-                line((float)y, prefix + moveListUCI[i], 14, sf::Color(210,210,210));
-                y += 18;
-                if(y > (int)(panelPos.y + panelSize.y - 20.f)) break;
+                float used = WRAP(listY, prefix + moveListUCI[i], 14, sf::Color(210,210,210));
+                listY += used;
+                if(listY > (panelPos.y + panelSize.y - 20.f)) break;
             }
         }
 
         window.display();
     }
 
+    stopAiThread();
     return 0;
 }
