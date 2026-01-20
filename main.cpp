@@ -1438,7 +1438,7 @@ int main(){
     sf::Vector2f dragPos(0,0);
 
     int aiMaxDepth = 15;
-    int aiTimeMs = 10000;
+    int aiTimeMs = 15000;
     int aiDelayMs = 35;
     sf::Clock aiClock;
 
