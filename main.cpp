@@ -18,6 +18,9 @@
 #include <filesystem>
 #include <sstream>
 #include <iostream>
+#include <thread>
+#include <atomic>
+#include <mutex>
 
 using u8  = std::uint8_t;
 using u16 = std::uint16_t;
@@ -1264,12 +1267,14 @@ int main(){
     bool hasFont=false;
     {
         std::vector<std::string> candidates = {
-            "assets/fonts/Inter-Regular.ttf",
-            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
-            "/System/Library/Fonts/Supplemental/Arial.ttf",
-            "/System/Library/Fonts/Supplemental/Verdana.ttf",
-            "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf"
+          "assets/fonts/Inter-Regular.ttf",
+          // Fedora / Linux (DejaVu)
+          "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+          "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf",
+          // macOS (harmless on Linux)
+          "/System/Library/Fonts/Supplemental/Arial.ttf",
+          "/System/Library/Fonts/Supplemental/Verdana.ttf",
+          "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf"        
         };
         for(const auto& p : candidates){
             if(std::filesystem::exists(p)){
@@ -1324,7 +1329,7 @@ int main(){
     sf::Vector2f dragPos(0,0);
 
     int aiMaxDepth = 8;
-    int aiTimeMs = 2000;
+    int aiTimeMs = 10000;
     int aiDelayMs = 350;
     sf::Clock aiClock;
 
