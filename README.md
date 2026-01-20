@@ -48,9 +48,8 @@ sudo dnf install sfml-devel pkg-config
 
 #### Compile command
 ```bash
-g++ -O2 -std=c++17 main.cpp -o gui
-$(pkg-config --cflags --libs sfml-graphics sfml-window sfml-system)
--pthread
+g++ -O2 -std=c++17 main.cpp -o gui $(pkg-config --cflags --libs sfml-graphics sfml-window sfml-system) -pthread
+
 ```
 Run
 ```bash
