@@ -1425,6 +1425,7 @@ int main(){
 
     GameMode mode = GameMode::Menu;
     GameMode pending = GameMode::PvP;
+    Color humanColor = Color::White;   
 
     std::string status = hasIcons ? "Ready." : "Missing icons: assets/pieces_png/*.png";
 
@@ -1436,17 +1437,17 @@ int main(){
     std::optional<int> dragFrom;
     sf::Vector2f dragPos(0,0);
 
-    int aiMaxDepth = 8;
+    int aiMaxDepth = 15;
     int aiTimeMs = 10000;
-    int aiDelayMs = 350;
+    int aiDelayMs = 35;
     sf::Clock aiClock;
 
     bool flipBoard=false;
 
     auto isHumanSide = [&](Color c)->bool{
         if(mode==GameMode::PvP) return true;
-        if(mode==GameMode::PvAI) return (c==Color::White);
-        return false;
+        if(mode==GameMode::PvAI) return (c==humanColor);
+      return false;
     };
 
     auto refreshSelection = [&](){
@@ -1559,12 +1560,36 @@ int main(){
                 if(code == sf::Keyboard::Escape) window.close();
 
                 if(mode==GameMode::Menu){
-                    if(code == sf::Keyboard::Num1) pending = GameMode::PvP;
-                    if(code == sf::Keyboard::Num2) pending = GameMode::PvAI;
-                    if(code == sf::Keyboard::Num3) pending = GameMode::AIvAI;
+                    if(code == sf::Keyboard::Num1){
+                        pending = GameMode::PvP;
+                    }
+
+                    // NEW: choose side for PvAI
+                    if(code == sf::Keyboard::Num2){
+                        pending = GameMode::PvAI;
+                        humanColor = Color::White;
+                    }
+                    if(code == sf::Keyboard::Num3){
+                        pending = GameMode::PvAI;
+                        humanColor = Color::Black;
+                    }
+
+                    // AI vs AI moved to 4
+                    if(code == sf::Keyboard::Num4){
+                        pending = GameMode::AIvAI;
+                    }
+
                     if(code == sf::Keyboard::Enter){
                         mode = pending;
                         resetGame();
+
+                        // NEW: auto-flip when playing as Black
+                        if(mode == GameMode::PvAI && humanColor == Color::Black){
+                            flipBoard = true;
+                        } else if(mode == GameMode::PvAI && humanColor == Color::White){
+                            flipBoard = false;
+                        }
+
                         status = "Game started: " + modeStr(mode);
                     }
                 } else {
@@ -1684,7 +1709,14 @@ int main(){
                 t.setFont(font);
                 t.setCharacterSize(30);
                 t.setFillColor(sf::Color(240,240,240));
-                t.setString("Choose mode:\n\n1) Player vs Player\n2) Player vs AI (you are White)\n3) Watch AI vs AI\n\nPress Enter to start");
+                t.setString(
+                  "Choose mode:\n\n"
+                  "1) Player vs Player\n"
+                  "2) Player vs AI (Play as White)\n"
+                  "3) Player vs AI (Play as Black)\n"
+                  "4) Watch AI vs AI\n\n"
+                  "Press Enter to start"
+                );                
                 t.setPosition(snap(sf::Vector2f(60.f, 80.f)));
                 window.draw(t);
 
