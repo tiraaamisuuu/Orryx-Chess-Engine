@@ -1,4 +1,4 @@
-# README – Build Instructions (Updated)
+# README – Build Instructions
 
 ## Overview
 This project is a C++ chess engine with an SFML 2.6.x GUI.
