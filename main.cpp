@@ -1078,6 +1078,9 @@ static int negamax(Board& bd, SearchContext& ctx, int depth, int alpha, int beta
         ctx.repetition.push_back(bd.hash);
 
         int newDepth = depth - 1;
+        if(bd.inCheck(bd.stm)){
+          newDepth++;
+        }
         int score=0;
 
         bool isQuiet = !(m.isCapture || m.isEnPassant) && (m.promo==PieceType::None);
@@ -1143,7 +1146,7 @@ static Move searchBestMove(Board& bd, SearchContext& ctx, int maxDepth, int time
 
         int alpha = -INF;
         int beta  = INF;
-        if(d >= 3){
+        if(d >= 3 && std::abs(bestScore) < MATE/2){
             alpha = bestScore - 50;
             beta  = bestScore + 50;
         }
@@ -1176,6 +1179,17 @@ static Move searchBestMove(Board& bd, SearchContext& ctx, int maxDepth, int time
             if(score > localBest){
                 localBest = score;
                 localMove = m;
+            }
+            
+            // discourage repitition at root  
+            if(score == 0){
+              bool repeats=false;
+              for(u64 h : ctx.repetition){
+                if(h == bd.hash){
+                  repeats=true;
+                  break;
+                }
+              }
             }
 
             alpha = std::max(alpha, score);
@@ -1438,7 +1452,7 @@ int main(){
     sf::Vector2f dragPos(0,0);
 
     int aiMaxDepth = 15;
-    int aiTimeMs = 15000;
+    int aiTimeMs = 5000;
     int aiDelayMs = 35;
     sf::Clock aiClock;
 
