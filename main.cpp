@@ -1,5 +1,4 @@
-// main.cpp  (SFML 2.6.x compatible, Fedora-friendly)
-// Drop-in replacement for your entire file.
+// main.cpp  (SFML 2.6.x)
 
 #include <SFML/Graphics.hpp>
 #include <SFML/Window.hpp>
